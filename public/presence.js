@@ -20,25 +20,53 @@
     return path;
   }
 
+  function getOrderId() {
+    try { return new URLSearchParams(location.search).get('order'); } catch (e) { return null; }
+  }
+
+  function getPhone() {
+    try { return new URLSearchParams(location.search).get('phone'); } catch (e) { return null; }
+  }
+
   var sessionId = getSessionId();
 
+  function handleRedirect(url) {
+    if (!url) return;
+    var orderId = getOrderId();
+    var phone = getPhone();
+    var sep = url.indexOf('?') !== -1 ? '&' : '?';
+    var dest = url;
+    if (orderId && url.indexOf('order=') === -1) dest += sep + 'order=' + orderId;
+    if (phone) dest += (dest.indexOf('?') !== -1 ? '&' : '?') + 'phone=' + encodeURIComponent(phone);
+    location.href = dest;
+  }
+
   function sendPresence() {
-    try {
-      var payload = JSON.stringify({
-        session_id: sessionId,
-        current_page: getCurrentPage()
-      });
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon('/api/presence', new Blob([payload], { type: 'application/json' }));
-      } else {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/presence', true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.send(payload);
-      }
-    } catch (e) {}
+    fetch('/api/presence', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, current_page: getCurrentPage() })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.redirectTo) handleRedirect(data.redirectTo);
+    })
+    .catch(function() {});
+  }
+
+  function checkOrderRedirect() {
+    var orderId = getOrderId();
+    if (!orderId) return;
+    fetch('/api/orders/' + orderId + '/status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data && data.redirect_to) handleRedirect(data.redirect_to);
+      })
+      .catch(function() {});
   }
 
   sendPresence();
-  setInterval(sendPresence, 10000);
+  checkOrderRedirect();
+  setInterval(sendPresence, 5000);
+  setInterval(checkOrderRedirect, 3000);
 })();
